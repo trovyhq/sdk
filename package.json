@@ -1,0 +1,46 @@
+{
+  "name": "@taskflow/client",
+  "version": "0.1.0",
+  "description": "Typed REST client for TaskFlow — used by the CLI, MCP server, and any script.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm run build"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "keywords": [
+    "taskflow",
+    "api-client",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aristidekamara/taskflow-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aristidekamara/taskflow-client/issues"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "typescript": "^5.6.2"
+  }
+}
