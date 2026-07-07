@@ -1,5 +1,5 @@
 /**
- * @taskflow/client — typed REST client for the TaskFlow API.
+ * @taskflow/sdk — typed REST client for the TaskFlow API.
  *
  * Used by:
  *   - @taskflow/cli  (terminal)

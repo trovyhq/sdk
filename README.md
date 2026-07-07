@@ -1,4 +1,4 @@
-# @taskflow/client
+# @taskflow/sdk
 
 Typed REST client for TaskFlow. Used by:
 
@@ -9,13 +9,13 @@ Typed REST client for TaskFlow. Used by:
 ## Install
 
 ```bash
-pnpm add @taskflow/client
+pnpm add @taskflow/sdk
 ```
 
 ## Quick start
 
 ```ts
-import { TaskFlowClient } from '@taskflow/client';
+import { TaskFlowClient } from '@taskflow/sdk';
 
 const tf = new TaskFlowClient({
   apiUrl: 'https://api.taskflow.app',
