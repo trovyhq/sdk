@@ -1,5 +1,5 @@
 {
-  "name": "@taskflow/sdk",
+  "name": "@taskflowapp/sdk",
   "version": "0.1.0",
   "description": "Typed REST client for TaskFlow — used by the CLI, MCP server, and any script.",
   "license": "MIT",
