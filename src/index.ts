@@ -282,10 +282,12 @@ export interface ClientOptions {
    *   - Browser-side SDK consumers (e.g. a docs page that wires the SDK
    *     into a React app served from a different origin)
    *
-   * If unset, defaults to `apiUrl` — which is correct when the API is hosted
-   * on the same origin as the app (e.g. `https://trovy.app` for both).
-   * For a separate API host (e.g. `api.trovy.app` behind the app at
-   * `trovy.app`), pass the APP origin explicitly:
+   * If unset, defaults to `apiUrl` — which is the right answer when the
+   * web app is served from the same origin as the API (the common Trovy
+   * deployment: `https://trovy.app` for both).
+   *
+   * For a split-host deployment (rare — only if you proxy `trovy.app` to
+   * a separate `api.trovy.app` upstream), pass the APP origin explicitly:
    *
    *   new TrovyClient({
    *     apiUrl:  'https://api.trovy.app',

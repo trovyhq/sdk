@@ -18,7 +18,7 @@ pnpm add @trovyhq/sdk
 import { TrovyClient } from '@trovyhq/sdk';
 
 const client = new TrovyClient({
-  apiUrl: 'https://api.trovy.app',
+  apiUrl: 'https://trovy.app',
   token: process.env.TROVY_TOKEN!, // tfp_…
 });
 

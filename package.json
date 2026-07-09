@@ -1,7 +1,7 @@
 {
   "name": "@trovyhq/sdk",
-  "version": "1.0.0",
-  "description": "Typed REST client for Trovy — used by the CLI, MCP server, and any script.",
+  "version": "1.0.1",
+  "description": "Typed REST client for Trovy \u2014 used by the CLI, MCP server, and any script.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
