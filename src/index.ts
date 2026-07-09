@@ -1,31 +1,26 @@
 /**
- * @taskflowapp/sdk — typed REST client for the TaskFlow API.
+ * @trovyhq/sdk — typed REST client for the Trovy API.
  *
  * Used by:
- *   - @taskflowapp/cli  (terminal)
- *   - @taskflowapp/mcp-server  (AI agents)
+ *   - @trovyhq/cli  (terminal)
+ *   - @trovyhq/mcp-server  (AI agents)
  *   - any user scripts or CI jobs
  *
  * Auth: pass `token: 'tfp_…'` once at construction. Every request goes out
  * with `Authorization: Bearer <token>`.
  *
- * Errors: the client throws `TaskFlowError` with `.status` (HTTP code) and
+ * Errors: the client throws `TrovyError` with `.status` (HTTP code) and
  * a human-readable `.message`. Callers can branch on `.status` for 401 vs
  * 404 vs 5xx.
  *
- * Versioning: this is v0.2.1 — fixes the SDK CSRF break in production.
- * The SDK now sends an `Origin` header on mutating requests (POST/PATCH/PUT/
- * DELETE), so the API's CSRF middleware stops rejecting write calls from
- * `@taskflowapp/mcp-server`, `@taskflowapp/cli`, and any user script.
+ * Versioning: this is v1.0.0 — initial stable release of the rebrand.
+ *   - Renamed from @taskflowapp/sdk to @trovyhq/sdk (product renamed to Trovy)
+ *   - `TaskFlowClient` → `TrovyClient`, `TaskFlowError` → `TrovyError`
+ *   - See https://trovy.app/docs/migration for upgrading from 0.x
  *
- * Backward-compat: existing callers that don't pass `origin` get the same
- * behaviour they had on 0.2.0 — the default `origin = apiUrl` keeps things
- * working when the API and the web app share a host.
- *
- * Changelog v0.2.1:
- *   - Added `ClientOptions.origin` for split-host deployments (issue: TF-16)
- *   - SDK now sends `Origin` header on mutating requests
- *   - Exposed `getOrigin()` for tooling introspection
+ * Origin header on mutating requests (since 0.2.1):
+ *   The SDK sends an `Origin` header on POST/PATCH/PUT/DELETE so the API's
+ *   CSRF middleware stops rejecting write calls from any caller. See TF-16.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -279,7 +274,7 @@ export interface ClientOptions {
   /**
    * Optional Origin sent on mutating requests (POST/PATCH/PUT/DELETE).
    *
-   * In production, the TaskFlow API checks the Origin header against
+   * In production, the Trovy API checks the Origin header against
    * `NEXT_PUBLIC_APP_URL` as a CSRF defense (the server-side middleware also
    * exempts Bearer-authenticated requests, so this is defense-in-depth). It
    * still matters for:
@@ -288,37 +283,41 @@ export interface ClientOptions {
    *     into a React app served from a different origin)
    *
    * If unset, defaults to `apiUrl` — which is correct when the API is hosted
-   * on the same origin as the app (e.g. `https://taskflow.app` for both).
-   * For a separate API host (e.g. `api.taskflow.app` behind the app at
-   * `taskflow.app`), pass the APP origin explicitly:
+   * on the same origin as the app (e.g. `https://trovy.app` for both).
+   * For a separate API host (e.g. `api.trovy.app` behind the app at
+   * `trovy.app`), pass the APP origin explicitly:
    *
-   *   new TaskFlowClient({
-   *     apiUrl:  'https://api.taskflow.app',
+   *   new TrovyClient({
+   *     apiUrl:  'https://api.trovy.app',
    *     token,
-   *     origin:  'https://taskflow.app',
+   *     origin:  'https://trovy.app',
    *   })
-   *
-   * See TF-16 in the TaskFlow project for the full write-up.
    */
   origin?: string;
 }
 
-export class TaskFlowError extends Error {
+export class TrovyError extends Error {
   status: number;
   body?: unknown;
   constructor(message: string, status: number, body?: unknown) {
     super(message);
-    this.name = 'TaskFlowError';
+    this.name = 'TrovyError';
     this.status = status;
     this.body = body;
   }
 }
 
+/**
+ * @deprecated Use `TrovyError` instead. Alias kept for one major version
+ * to help SDK 0.x users migrate to 1.x without an immediate breakage.
+ */
+export const TaskFlowError = TrovyError;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Client
 // ─────────────────────────────────────────────────────────────────────────────
 
-export class TaskFlowClient {
+export class TrovyClient {
   private readonly apiUrl: string;
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
@@ -387,7 +386,7 @@ export class TaskFlowClient {
         signal: controller.signal,
       });
     } catch (e: any) {
-      throw new TaskFlowError(
+      throw new TrovyError(
         e?.name === 'AbortError' ? `Request timeout after ${this.timeoutMs}ms` : e?.message ?? 'Network error',
         0
       );
@@ -403,7 +402,7 @@ export class TaskFlowClient {
         (json as any)?.error && typeof (json as any).error === 'string'
           ? (json as any).error
           : `HTTP ${res.status}`;
-      throw new TaskFlowError(message, res.status, json);
+      throw new TrovyError(message, res.status, json);
     }
     return json as T;
   }
@@ -447,7 +446,7 @@ export class TaskFlowClient {
     }
     return this.listProjects().then(({ projects }) => {
       const p = projects.find((x) => x.key.toUpperCase() === keyOrId.toUpperCase());
-      if (!p) throw new TaskFlowError(`No project with key "${keyOrId}"`, 404);
+      if (!p) throw new TrovyError(`No project with key "${keyOrId}"`, 404);
       return { id: p.id, project: p };
     });
   }
@@ -616,7 +615,7 @@ export class TaskFlowClient {
     return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/share`);
   }
 
-  /** Note: TaskFlow uses stateless JWT shares. Revoke requires JWT_SECRET rotation. */
+  /** Note: Trovy uses stateless JWT shares. Revoke requires JWT_SECRET rotation. */
   revokeTaskShare(taskId: string): Promise<{ ok: true; note: string }> {
     return this.request('DELETE', `/api/tasks/${encodeURIComponent(taskId)}/share`);
   }
@@ -673,7 +672,7 @@ export class TaskFlowClient {
 
   /**
    * Resolve a `TF-12` style reference to `{ projectId, taskId, task }`.
-   * Throws `TaskFlowError(404)` if either side is missing.
+   * Throws `TrovyError(404)` if either side is missing.
    */
   async resolveTaskRef(ref: string): Promise<{
     projectKey: string;
@@ -683,7 +682,7 @@ export class TaskFlowClient {
   }> {
     const parsed = parseTaskRef(ref);
     if (!parsed) {
-      throw new TaskFlowError(`Invalid task reference "${ref}" — expected something like "TF-12"`, 400);
+      throw new TrovyError(`Invalid task reference "${ref}" — expected something like "TF-12"`, 400);
     }
     const { id: projectId, project } = await this.resolveProjectKeyAndId(parsed.key);
     const tasksResp = await this.request<{ tasks: Task[] }>(
@@ -692,7 +691,7 @@ export class TaskFlowClient {
     );
     const task = tasksResp.tasks.find((t) => t.number === parsed.number);
     if (!task) {
-      throw new TaskFlowError(`Task ${ref} not found in project ${parsed.key}`, 404);
+      throw new TrovyError(`Task ${ref} not found in project ${parsed.key}`, 404);
     }
     return {
       projectKey: project.key,

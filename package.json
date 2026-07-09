@@ -1,7 +1,7 @@
 {
-  "name": "@taskflowapp/sdk",
-  "version": "0.2.1",
-  "description": "Typed REST client for TaskFlow — used by the CLI, MCP server, and any script.",
+  "name": "@trovyhq/sdk",
+  "version": "1.0.0",
+  "description": "Typed REST client for Trovy — used by the CLI, MCP server, and any script.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,16 +28,17 @@
     "node": ">=18.17.0"
   },
   "keywords": [
-    "taskflow",
+    "trovy",
     "api-client",
-    "typescript"
+    "typescript",
+    "task-management"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/aristidekamara/taskflow-client.git"
+    "url": "https://github.com/trovyhq/sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/aristidekamara/taskflow-client/issues"
+    "url": "https://github.com/trovyhq/sdk/issues"
   },
   "devDependencies": {
     "@types/node": "^20.16.5",
