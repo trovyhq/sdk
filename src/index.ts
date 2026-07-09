@@ -13,14 +13,28 @@
  * a human-readable `.message`. Callers can branch on `.status` for 401 vs
  * 404 vs 5xx.
  *
- * Versioning: this is v0.2.0 — adds recurrence, dependencies, time entries,
- * task sharing, bulk actions, notifications, and full task detail
- * (comments, attachments, checklists, time entries).
+ * Versioning: this is v0.2.1 — fixes the SDK CSRF break in production.
+ * The SDK now sends an `Origin` header on mutating requests (POST/PATCH/PUT/
+ * DELETE), so the API's CSRF middleware stops rejecting write calls from
+ * `@taskflowapp/mcp-server`, `@taskflowapp/cli`, and any user script.
+ *
+ * Backward-compat: existing callers that don't pass `origin` get the same
+ * behaviour they had on 0.2.0 — the default `origin = apiUrl` keeps things
+ * working when the API and the web app share a host.
+ *
+ * Changelog v0.2.1:
+ *   - Added `ClientOptions.origin` for split-host deployments (issue: TF-16)
+ *   - SDK now sends `Origin` header on mutating requests
+ *   - Exposed `getOrigin()` for tooling introspection
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Enums + base types
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** HTTP methods that are guaranteed not to mutate state on the server.
+ *  We only attach the `Origin` header to mutating requests (see `request`). */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'BLOCKED' | 'CANCELLED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
@@ -262,6 +276,31 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   /** Per-request timeout in ms. Default 12 000. */
   timeoutMs?: number;
+  /**
+   * Optional Origin sent on mutating requests (POST/PATCH/PUT/DELETE).
+   *
+   * In production, the TaskFlow API checks the Origin header against
+   * `NEXT_PUBLIC_APP_URL` as a CSRF defense (the server-side middleware also
+   * exempts Bearer-authenticated requests, so this is defense-in-depth). It
+   * still matters for:
+   *   - Any non-Bearer auth path that gets re-tightened later
+   *   - Browser-side SDK consumers (e.g. a docs page that wires the SDK
+   *     into a React app served from a different origin)
+   *
+   * If unset, defaults to `apiUrl` — which is correct when the API is hosted
+   * on the same origin as the app (e.g. `https://taskflow.app` for both).
+   * For a separate API host (e.g. `api.taskflow.app` behind the app at
+   * `taskflow.app`), pass the APP origin explicitly:
+   *
+   *   new TaskFlowClient({
+   *     apiUrl:  'https://api.taskflow.app',
+   *     token,
+   *     origin:  'https://taskflow.app',
+   *   })
+   *
+   * See TF-16 in the TaskFlow project for the full write-up.
+   */
+  origin?: string;
 }
 
 export class TaskFlowError extends Error {
@@ -284,6 +323,7 @@ export class TaskFlowClient {
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly origin: string;
 
   constructor(opts: ClientOptions) {
     if (!opts.apiUrl) throw new Error('apiUrl is required');
@@ -292,11 +332,21 @@ export class TaskFlowClient {
     this.token = opts.token;
     this.fetchImpl = opts.fetch ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 12_000;
+    // Default Origin to the API host — this is the right answer when the web
+    // app is served from the same origin as the API (the common deployment).
+    // For split-host deployments, callers pass `origin` explicitly to point at
+    // the public app URL (so it matches `NEXT_PUBLIC_APP_URL` on the server).
+    this.origin = (opts.origin ?? opts.apiUrl).replace(/\/$/, '');
   }
 
   /** Exposed for tooling (e.g. CLI `--open` to build the web URL). */
   getApiUrl(): string {
     return this.apiUrl;
+  }
+
+  /** The Origin header that will be sent on mutating requests. */
+  getOrigin(): string {
+    return this.origin;
   }
 
   // ── Low-level request ─────────────────────────────────────────────────────
@@ -321,6 +371,12 @@ export class TaskFlowClient {
     };
     const body = init?.body !== undefined ? JSON.stringify(init.body) : undefined;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
+    // CSRF defense-in-depth: send Origin on mutating requests so the API's
+    // CSRF middleware (which checks Origin against NEXT_PUBLIC_APP_URL) passes
+    // even before the Bearer-auth bypass kicks in. Safe methods don't need it.
+    if (!SAFE_METHODS.has(method.toUpperCase())) {
+      headers['Origin'] = this.origin;
+    }
 
     let res: Response;
     try {
