@@ -16,7 +16,7 @@
  * Versioning: this is v1.0.0 — initial stable release of the rebrand.
  *   - Renamed from @taskflowapp/sdk to @trovyhq/sdk (product renamed to Trovy)
  *   - `TaskFlowClient` → `TrovyClient`, `TaskFlowError` → `TrovyError`
- *   - See https://trovy.app/docs/migration for upgrading from 0.x
+ *   - See https://app.trovy.app/docs/migration for upgrading from 0.x
  *
  * Origin header on mutating requests (since 0.2.1):
  *   The SDK sends an `Origin` header on POST/PATCH/PUT/DELETE so the API's
@@ -30,6 +30,9 @@
 /** HTTP methods that are guaranteed not to mutate state on the server.
  *  We only attach the `Origin` header to mutating requests (see `request`). */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/** Public Trovy application and API origin. */
+export const DEFAULT_API_URL = 'https://app.trovy.app';
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'BLOCKED' | 'CANCELLED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
@@ -265,7 +268,11 @@ export interface Metrics {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ClientOptions {
-  apiUrl: string;
+  /**
+   * Trovy application/API origin. Defaults to the hosted Trovy application.
+   * Set this only for a self-hosted or local development deployment.
+   */
+  apiUrl?: string;
   token: string;
   /** Override fetch (useful in tests). Defaults to global fetch. */
   fetch?: typeof fetch;
@@ -284,15 +291,15 @@ export interface ClientOptions {
    *
    * If unset, defaults to `apiUrl` — which is the right answer when the
    * web app is served from the same origin as the API (the common Trovy
-   * deployment: `https://trovy.app` for both).
+   * deployment: `https://app.trovy.app` for both).
    *
-   * For a split-host deployment (rare — only if you proxy `trovy.app` to
+   * For a split-host deployment (rare — only if you proxy `app.trovy.app` to
    * a separate `api.trovy.app` upstream), pass the APP origin explicitly:
    *
    *   new TrovyClient({
    *     apiUrl:  'https://api.trovy.app',
    *     token,
-   *     origin:  'https://trovy.app',
+   *     origin:  'https://app.trovy.app',
    *   })
    */
   origin?: string;
@@ -327,9 +334,8 @@ export class TrovyClient {
   private readonly origin: string;
 
   constructor(opts: ClientOptions) {
-    if (!opts.apiUrl) throw new Error('apiUrl is required');
     if (!opts.token) throw new Error('token is required');
-    this.apiUrl = opts.apiUrl.replace(/\/$/, '');
+    this.apiUrl = (opts.apiUrl ?? DEFAULT_API_URL).replace(/\/$/, '');
     this.token = opts.token;
     this.fetchImpl = opts.fetch ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 12_000;
@@ -337,7 +343,7 @@ export class TrovyClient {
     // app is served from the same origin as the API (the common deployment).
     // For split-host deployments, callers pass `origin` explicitly to point at
     // the public app URL (so it matches `NEXT_PUBLIC_APP_URL` on the server).
-    this.origin = (opts.origin ?? opts.apiUrl).replace(/\/$/, '');
+    this.origin = (opts.origin ?? this.apiUrl).replace(/\/$/, '');
   }
 
   /** Exposed for tooling (e.g. CLI `--open` to build the web URL). */
