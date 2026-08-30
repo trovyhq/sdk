@@ -35,7 +35,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 export const DEFAULT_API_URL = 'https://api.trovy.app';
 const API_PREFIX = '/api/v1';
 
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'BLOCKED' | 'CANCELLED';
+export type TaskStatus = 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'BLOCKED' | 'CANCELLED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 export type TaskType = 'TASK' | 'BUG' | 'FEATURE' | 'IMPROVEMENT' | 'EPIC' | 'STORY';
 export type RecurrenceFreq = 'DAILY' | 'WEEKLY' | 'MONTHLY';
@@ -415,27 +415,39 @@ export class TrovyClient {
 
   // ── Identity ─────────────────────────────────────────────────────────────
 
-  whoami = (): Promise<{ user: User }> =>
-    this.request('GET', '/api/auth/me');
+  async whoami(): Promise<{ user: User }> {
+    const result = await this.request<User | { user: User }>('GET', '/api/users/me');
+    return { user: unwrapObject(result, 'user') };
+  }
 
   /** Search users by username/name/email — used for @mention autocomplete. */
-  searchUsers(q: string): Promise<{ users: User[] }> {
-    return this.request('GET', '/api/users/search', { query: { q } });
+  async searchUsers(q: string): Promise<{ users: User[] }> {
+    const result = await this.search(q);
+    return { users: result.users };
   }
 
   // ── Projects ─────────────────────────────────────────────────────────────
 
-  listProjects(): Promise<{ projects: Project[] }> {
-    return this.request('GET', '/api/projects');
+  async listProjects(): Promise<{ projects: Project[] }> {
+    const result = await this.request<Project[] | { projects: Project[] }>('GET', '/api/projects');
+    return { projects: unwrapArray(result, 'projects').map(normalizeProject) };
   }
 
-  getProject(id: string): Promise<{ project: Project }> {
-    return this.request('GET', `/api/projects/${encodeURIComponent(id)}`);
+  async getProject(id: string): Promise<{ project: Project }> {
+    const result = await this.request<Project | { project: Project }>(
+      'GET',
+      `/api/projects/${encodeURIComponent(id)}`
+    );
+    return { project: normalizeProject(unwrapObject(result, 'project')) };
   }
 
   /** Fetch all labels defined in a project. */
-  listProjectLabels(projectId: string): Promise<{ labels: Label[] }> {
-    return this.request('GET', `/api/projects/${encodeURIComponent(projectId)}/labels`);
+  async listProjectLabels(projectId: string): Promise<{ labels: Label[] }> {
+    const result = await this.request<Label[] | { labels: Label[] }>(
+      'GET',
+      `/api/projects/${encodeURIComponent(projectId)}/labels`
+    );
+    return { labels: unwrapArray(result, 'labels') };
   }
 
   // ── Tasks ────────────────────────────────────────────────────────────────
@@ -472,9 +484,9 @@ export class TrovyClient {
     storyPoints?: number;
     parentId?: string;
   }): Promise<{ task: Task }> {
-    return this.request('POST', `/api/projects/${encodeURIComponent(input.projectId)}/tasks`, {
+    return this.request<Task | { task: Task }>('POST', `/api/projects/${encodeURIComponent(input.projectId)}/tasks`, {
       body: input,
-    });
+    }).then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
   }
 
   /** List tasks in a project. Optional `status`, `assigneeId`, `labelId`, `search` filters. */
@@ -482,23 +494,24 @@ export class TrovyClient {
     projectId: string,
     opts: { status?: TaskStatus; assigneeId?: string; labelId?: string; search?: string; limit?: number } = {}
   ): Promise<{ tasks: Task[] }> {
-    return this.request(
+    return this.request<Task[] | { tasks: Task[] }>(
       'GET',
       `/api/projects/${encodeURIComponent(projectId)}/tasks`,
       { query: opts as Record<string, unknown> }
-    );
+    ).then((result) => ({ tasks: unwrapArray(result, 'tasks').map(normalizeTask) }));
   }
 
   /** List tasks assigned to the current user across all their projects. */
   listMyAssignedTasks(opts: { status?: TaskStatus; limit?: number } = {}): Promise<{ tasks: Task[] }> {
-    return this.request('GET', '/api/users/me/inbox', {
+    return this.request<Task[] | { tasks: Task[] }>('GET', '/api/inbox/tasks', {
       query: opts as Record<string, unknown>,
-    });
+    }).then((result) => ({ tasks: unwrapArray(result, 'tasks').map(normalizeTask) }));
   }
 
   /** Full task detail (comments, attachments, time entries, checklists, children). */
   getTask(id: string): Promise<{ task: TaskWithDetail }> {
-    return this.request('GET', `/api/tasks/${encodeURIComponent(id)}`);
+    return this.request<TaskWithDetail | { task: TaskWithDetail }>('GET', `/api/tasks/${encodeURIComponent(id)}`)
+      .then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) as TaskWithDetail }));
   }
 
   /** Patch a task. Any subset of fields accepted by CreateTaskSchema. */
@@ -517,40 +530,75 @@ export class TrovyClient {
       estimateMinutes: number | null;
       storyPoints: number | null;
       order: string;
+      rrule: string | null;
+      rruleStart: string | null;
     }>
   ): Promise<{ task: Task }> {
-    return this.request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, { body: patch });
+    return this.request<Task | { task: Task }>('PATCH', `/api/tasks/${encodeURIComponent(id)}`, { body: patch })
+      .then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
   }
 
   deleteTask(id: string): Promise<{ success: true }> {
-    return this.request('DELETE', `/api/tasks/${encodeURIComponent(id)}`);
+    return this.request<void>('DELETE', `/api/tasks/${encodeURIComponent(id)}`).then(() => ({ success: true }));
+  }
+
+  assignTask(taskId: string, assigneeId: string | null): Promise<{ task: Task }> {
+    return this.request<Task | { task: Task }>('POST', `/api/tasks/${encodeURIComponent(taskId)}/assign`, {
+      body: { assigneeId },
+    }).then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
   }
 
   /** Move a task to a new status. `order` is optional and defaults to "a0"
    *  (Kanban end of column). For drag-drop ordering, use a fractional key. */
-  moveTask(id: string, status: TaskStatus, order?: string): Promise<{ task: Task }> {
-    return this.request('POST', `/api/tasks/${encodeURIComponent(id)}/move`, {
-      body: { status, order: order ?? 'a0' },
-    });
+  moveTask(id: string, status: TaskStatus, _order?: string): Promise<{ task: Task }> {
+    return this.request<Task | { task: Task }>('POST', `/api/tasks/${encodeURIComponent(id)}/status`, {
+      body: { status },
+    }).then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
   }
 
   addComment(taskId: string, content: string): Promise<{ comment: Comment }> {
-    return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/comments`, {
-      body: { content },
-    });
+    return this.request<Comment | { comment: Comment }>('POST', `/api/tasks/${encodeURIComponent(taskId)}/comments`, {
+      body: { body: content },
+    }).then((result) => ({ comment: normalizeComment(unwrapObject(result, 'comment')) }));
   }
 
-  linkPr(taskId: string, prUrl: string): Promise<{ task: Task; pr: unknown }> {
-    return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/github/pr`, {
-      body: { prUrl },
-    });
+  addChecklistItem(taskId: string, title: string): Promise<{ task: Task }> {
+    return this.request<Task | { task: Task }>('POST', `/api/tasks/${encodeURIComponent(taskId)}/checklist`, {
+      body: { title },
+    }).then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
+  }
+
+  updateChecklistItem(
+    taskId: string,
+    itemId: string,
+    patch: { title?: string; completed?: boolean; order?: number }
+  ): Promise<{ task: Task }> {
+    return this.request<Task | { task: Task }>(
+      'PATCH',
+      `/api/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`,
+      { body: patch }
+    ).then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
+  }
+
+  deleteChecklistItem(taskId: string, itemId: string): Promise<{ task: Task }> {
+    return this.request<Task | { task: Task }>(
+      'DELETE',
+      `/api/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`
+    ).then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
+  }
+
+  linkPr(taskId: string, prUrl: string): Promise<{ link: unknown }> {
+    return this.request<unknown>('POST', `/api/tasks/${encodeURIComponent(taskId)}/github/pr`, {
+      body: { pullRequestUrl: prUrl },
+    }).then((link) => ({ link }));
   }
 
   // ── Recurrence ───────────────────────────────────────────────────────────
 
   /** Get the current recurrence rule for a task (or `{ rule: null }`). */
-  getRecurrence(taskId: string): Promise<{ rule: RecurrenceRule | null }> {
-    return this.request('GET', `/api/tasks/${encodeURIComponent(taskId)}/recurrence`);
+  async getRecurrence(taskId: string): Promise<{ rule: RecurrenceRule | null }> {
+    const { task } = await this.getTask(taskId);
+    return { rule: recurrenceRuleFromTask(task) };
   }
 
   /** Set or replace a task's recurrence rule. Returns the new rule. */
@@ -566,37 +614,42 @@ export class TrovyClient {
       endsAt?: string | null;
     }
   ): Promise<{ rule: RecurrenceRule }> {
-    return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/recurrence`, { body: opts });
+    const rrule = formatRRule(opts);
+    return this.updateTask(taskId, { rrule, rruleStart: new Date().toISOString() })
+      .then(({ task }) => {
+        const rule = recurrenceRuleFromTask(task);
+        if (!rule) throw new TrovyError('The API did not persist the recurrence rule', 502);
+        return { rule };
+      });
   }
 
   /** Remove a task's recurrence rule. */
   removeRecurrence(taskId: string): Promise<{ ok: true }> {
-    return this.request('DELETE', `/api/tasks/${encodeURIComponent(taskId)}/recurrence`);
+    return this.updateTask(taskId, { rrule: null, rruleStart: null }).then(() => ({ ok: true }));
   }
 
   // ── Dependencies ─────────────────────────────────────────────────────────
 
   /** List tasks blocked-by this one + tasks this one blocks. */
-  listDependencies(taskId: string): Promise<{
-    blockedBy: TaskDependency[];
-    blocks: TaskDependency[];
-  }> {
-    return this.request('GET', `/api/tasks/${encodeURIComponent(taskId)}/dependencies`);
+  listDependencies(taskId: string): Promise<TaskDependency[]> {
+    return this.request<TaskDependency[] | { dependencies: TaskDependency[] }>(
+      'GET',
+      `/api/tasks/${encodeURIComponent(taskId)}/dependencies`
+    ).then((result) => unwrapArray(result, 'dependencies'));
   }
 
   /** Add a blocker: `taskId` becomes blocked-by `dependsOnId`. Throws 400 on cycle. */
-  addDependency(taskId: string, dependsOnId: string): Promise<{ dependency: TaskDependency }> {
-    return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/dependencies`, {
-      body: { dependsOnId },
-    });
+  addDependency(sourceTaskId: string, targetTaskId: string): Promise<{ dependency: TaskDependency }> {
+    return this.request<TaskDependency | { dependency: TaskDependency }>(
+      'POST',
+      `/api/tasks/${encodeURIComponent(sourceTaskId)}/dependencies`,
+      { body: { targetId: targetTaskId } }
+    ).then((result) => ({ dependency: unwrapObject(result, 'dependency') }));
   }
 
-  removeDependency(taskId: string, dependsOnId: string): Promise<{ ok: true }> {
-    return this.request(
-      'DELETE',
-      `/api/tasks/${encodeURIComponent(taskId)}/dependencies`,
-      { query: { dependsOnId } }
-    );
+  removeDependency(dependencyId: string): Promise<{ ok: true }> {
+    return this.request<void>('DELETE', `/api/dependencies/${encodeURIComponent(dependencyId)}`)
+      .then(() => ({ ok: true }));
   }
 
   // ── Time tracking ────────────────────────────────────────────────────────
@@ -611,19 +664,20 @@ export class TrovyClient {
     taskId: string,
     input: { minutes: number; description?: string; startedAt?: string }
   ): Promise<{ entry: TimeEntry }> {
-    return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/time`, { body: input });
+    return this.request<TimeEntry | { entry: TimeEntry }>('POST', `/api/tasks/${encodeURIComponent(taskId)}/time`, { body: input })
+      .then((result) => ({ entry: unwrapObject(result, 'entry') }));
   }
 
   // ── Sharing ──────────────────────────────────────────────────────────────
 
   /** Create (or refresh) a public share token for a task. Returns the token + URL. */
   shareTask(taskId: string): Promise<TaskShare> {
-    return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/share`);
+    return this.request<TaskShare>('POST', `/api/tasks/${encodeURIComponent(taskId)}/share-links`, { body: {} });
   }
 
   /** Note: Trovy uses stateless JWT shares. Revoke requires JWT_SECRET rotation. */
-  revokeTaskShare(taskId: string): Promise<{ ok: true; note: string }> {
-    return this.request('DELETE', `/api/tasks/${encodeURIComponent(taskId)}/share`);
+  revokeTaskShare(_taskId: string): Promise<{ ok: true; note: string }> {
+    throw new TrovyError('A share-link id is required to revoke a task share link', 400);
   }
 
   // ── Bulk ─────────────────────────────────────────────────────────────────
@@ -639,15 +693,21 @@ export class TrovyClient {
   // ── Notifications ────────────────────────────────────────────────────────
 
   listNotifications(): Promise<{ notifications: Notification[]; unreadCount: number }> {
-    return this.request('GET', '/api/notifications');
+    return this.request<{ items?: Notification[]; notifications?: Notification[]; unreadCount?: number }>(
+      'GET',
+      '/api/notifications'
+    ).then((result) => ({
+      notifications: result.items ?? result.notifications ?? [],
+      unreadCount: result.unreadCount ?? 0,
+    }));
   }
 
   markNotificationRead(id: string): Promise<{ success: true }> {
-    return this.request('PATCH', '/api/notifications', { body: { id } });
+    return this.request('POST', `/api/notifications/${encodeURIComponent(id)}/read`).then(() => ({ success: true }));
   }
 
   markAllNotificationsRead(): Promise<{ success: true }> {
-    return this.request('PATCH', '/api/notifications', { body: { markAllRead: true } });
+    return this.request('POST', '/api/notifications/read-all').then(() => ({ success: true }));
   }
 
   // ── Search & inbox ───────────────────────────────────────────────────────
@@ -657,11 +717,32 @@ export class TrovyClient {
     tasks: Task[];
     users: User[];
   }> {
-    return this.request('GET', '/api/search', { query: { q, limit } });
+    return this.request<{ projects: Project[]; tasks: Task[]; users: User[] }>(
+      'GET',
+      '/api/search',
+      { query: { q, limit } }
+    ).then((result) => ({
+      projects: (result.projects ?? []).map(normalizeProject),
+      tasks: (result.tasks ?? []).map(normalizeTask),
+      users: result.users ?? [],
+    }));
   }
 
-  smartInbox(scope: 'all' | 'mine' = 'all'): Promise<SmartInbox> {
-    return this.request('GET', '/api/inbox/smart', { query: { scope } });
+  async smartInbox(scope: 'all' | 'mine' = 'all'): Promise<SmartInbox> {
+    const inbox = await this.request<SmartInbox>('GET', '/api/inbox/smart', { query: { scope } });
+    return {
+      ...inbox,
+      groups: {
+        awaitingReview: (inbox.groups?.awaitingReview ?? []).map(normalizeTask),
+        mentioned: (inbox.groups?.mentioned ?? []).map((item) => ({
+          ...item,
+          task: normalizeTask(item.task),
+        })),
+        assignedActive: (inbox.groups?.assignedActive ?? []).map(normalizeTask),
+        recentlyDone: (inbox.groups?.recentlyDone ?? []).map(normalizeTask),
+        stale: (inbox.groups?.stale ?? []).map(normalizeTask),
+      },
+    };
   }
 
   // ── Metrics ──────────────────────────────────────────────────────────────
@@ -691,11 +772,8 @@ export class TrovyClient {
       throw new TrovyError(`Invalid task reference "${ref}" — expected something like "TF-12"`, 400);
     }
     const { id: projectId, project } = await this.resolveProjectKeyAndId(parsed.key);
-    const tasksResp = await this.request<{ tasks: Task[] }>(
-      'GET',
-      `/api/projects/${encodeURIComponent(projectId)}/tasks`
-    );
-    const task = tasksResp.tasks.find((t) => t.number === parsed.number);
+    const { tasks } = await this.listTasks(projectId);
+    const task = tasks.find((t) => t.number === parsed.number);
     if (!task) {
       throw new TrovyError(`Task ${ref} not found in project ${parsed.key}`, 404);
     }
@@ -784,4 +862,96 @@ function safeJson(text: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+function unwrapArray<T>(value: T[] | { [key: string]: T[] }, key: string): T[] {
+  if (Array.isArray(value)) return value;
+  const nested = value[key];
+  if (Array.isArray(nested)) return nested;
+  throw new TrovyError(`Malformed API response: expected an array or { ${key}: [] }`, 502, value);
+}
+
+function unwrapObject<T>(value: T | { [key: string]: T }, key: string): T {
+  if (value && typeof value === 'object' && key in value) {
+    const nested = (value as { [key: string]: T })[key];
+    if (nested && typeof nested === 'object') return nested;
+  }
+  if (value && typeof value === 'object') return value as T;
+  throw new TrovyError(`Malformed API response: expected an object or { ${key}: {} }`, 502, value);
+}
+
+function normalizeProject(project: Project): Project {
+  return project;
+}
+
+function normalizeTask(task: any): Task {
+  const raw = task as Record<string, unknown>;
+  return {
+    ...raw,
+    number: Number(raw.number ?? raw.sequence),
+    creatorId: String(raw.creatorId ?? raw.createdBy),
+    assignees: Array.isArray(raw.assignees) ? raw.assignees : [],
+    labels: Array.isArray(raw.labels) ? raw.labels : [],
+    project: raw.project as Task['project'],
+  } as Task;
+}
+
+function normalizeComment(comment: any): Comment {
+  const raw = comment as Record<string, unknown>;
+  return {
+    ...raw,
+    content: String(raw.content ?? raw.body ?? ''),
+  } as Comment;
+}
+
+function formatRRule(opts: {
+  frequency: RecurrenceFreq;
+  byDay?: number[];
+  hourOfDay?: number;
+  endsAt?: string | null;
+}): string {
+  const parts = [`FREQ=${opts.frequency}`];
+  if (opts.frequency === 'WEEKLY' && opts.byDay?.length) {
+    const weekdays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const byDay = opts.byDay.map((day) => weekdays[day]).filter(Boolean);
+    if (!byDay.length) throw new TrovyError('byDay must contain weekdays from 0 to 6', 400);
+    parts.push(`BYDAY=${byDay.join(',')}`);
+  }
+  if (opts.frequency === 'MONTHLY' && opts.byDay?.length) {
+    const day = opts.byDay[0];
+    if (day === undefined || !Number.isInteger(day) || day < 1 || day > 31) {
+      throw new TrovyError('byDay must contain a day of month from 1 to 31', 400);
+    }
+    parts.push(`BYMONTHDAY=${day}`);
+  }
+  if (opts.hourOfDay !== undefined) {
+    if (!Number.isInteger(opts.hourOfDay) || opts.hourOfDay < 0 || opts.hourOfDay > 23) {
+      throw new TrovyError('hourOfDay must be an integer from 0 to 23', 400);
+    }
+    parts.push(`BYHOUR=${opts.hourOfDay}`);
+  }
+  if (opts.endsAt) {
+    const endsAt = new Date(opts.endsAt);
+    if (Number.isNaN(endsAt.getTime())) throw new TrovyError('endsAt must be a valid ISO datetime', 400);
+    parts.push(`UNTIL=${endsAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}`);
+  }
+  return parts.join(';');
+}
+
+function recurrenceRuleFromTask(task: Task): RecurrenceRule | null {
+  const raw = task as Task & Record<string, unknown>;
+  if (!raw.rrule || typeof raw.rrule !== 'string') return null;
+  const frequency = raw.rrule.match(/FREQ=(DAILY|WEEKLY|MONTHLY)/)?.[1] as RecurrenceFreq | undefined;
+  if (!frequency) return null;
+  return {
+    id: task.id,
+    taskId: task.id,
+    frequency,
+    byDay: [],
+    hourOfDay: 9,
+    endsAt: (raw.recurrenceEndsAt as string | null | undefined) ?? null,
+    lastSpawnedAt: (raw.recurrenceLastSpawnedAt as string | null | undefined) ?? null,
+    nextSpawnAt: String(raw.recurrenceNextSpawnAt ?? ''),
+    createdAt: String(task.createdAt),
+  };
 }
