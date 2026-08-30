@@ -31,8 +31,9 @@
  *  We only attach the `Origin` header to mutating requests (see `request`). */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/** Public Trovy application and API origin. */
-export const DEFAULT_API_URL = 'https://app.trovy.app';
+/** Public origin of the versioned Trovy REST API. */
+export const DEFAULT_API_URL = 'https://api.trovy.app';
+const API_PREFIX = '/api/v1';
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'BLOCKED' | 'CANCELLED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
@@ -269,7 +270,7 @@ export interface Metrics {
 
 export interface ClientOptions {
   /**
-   * Trovy application/API origin. Defaults to the hosted Trovy application.
+   * Trovy API origin. Defaults to the hosted, versioned Trovy API.
    * Set this only for a self-hosted or local development deployment.
    */
   apiUrl?: string;
@@ -289,12 +290,10 @@ export interface ClientOptions {
    *   - Browser-side SDK consumers (e.g. a docs page that wires the SDK
    *     into a React app served from a different origin)
    *
-   * If unset, defaults to `apiUrl` — which is the right answer when the
-   * web app is served from the same origin as the API (the common Trovy
-   * deployment: `https://app.trovy.app` for both).
+   * If unset, defaults to `apiUrl`. For the hosted deployment, callers that
+   * need an Origin header should set this to `https://app.trovy.app`.
    *
-   * For a split-host deployment (rare — only if you proxy `app.trovy.app` to
-   * a separate `api.trovy.app` upstream), pass the APP origin explicitly:
+   * For a split-host deployment, pass the web application origin explicitly:
    *
    *   new TrovyClient({
    *     apiUrl:  'https://api.trovy.app',
@@ -339,10 +338,9 @@ export class TrovyClient {
     this.token = opts.token;
     this.fetchImpl = opts.fetch ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 12_000;
-    // Default Origin to the API host — this is the right answer when the web
-    // app is served from the same origin as the API (the common deployment).
-    // For split-host deployments, callers pass `origin` explicitly to point at
-    // the public app URL (so it matches `NEXT_PUBLIC_APP_URL` on the server).
+    // API consumers normally use Bearer authentication, which is exempt from
+    // browser CSRF checks. Browser consumers on a split deployment can set
+    // this explicitly to the public app URL.
     this.origin = (opts.origin ?? this.apiUrl).replace(/\/$/, '');
   }
 
@@ -363,7 +361,7 @@ export class TrovyClient {
     path: string,
     init?: { query?: Record<string, unknown>; body?: unknown }
   ): Promise<T> {
-    let url = `${this.apiUrl}${path}`;
+    let url = `${this.apiUrl}${toVersionedApiPath(path)}`;
     if (init?.query) {
       const qs = toQueryString(init.query);
       if (qs) url += (url.includes('?') ? '&' : '?') + qs;
@@ -708,6 +706,13 @@ export class TrovyClient {
       task,
     };
   }
+}
+
+function toVersionedApiPath(path: string): string {
+  if (!path.startsWith('/api/')) {
+    throw new Error(`Trovy API paths must start with /api/: ${path}`);
+  }
+  return `${API_PREFIX}/${path.slice('/api/'.length)}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
