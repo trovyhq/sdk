@@ -31,12 +31,12 @@ await client.moveTask(task.id, 'IN_REVIEW');
 await client.addComment(task.id, '🚀 Auto via CI');
 ```
 
-The SDK uses `https://app.trovy.app` by default. Pass `apiUrl` only for a
+The SDK uses `https://api.trovy.app` by default. Pass `apiUrl` only for a
 self-hosted or local deployment:
 
 ```ts
 const client = new TrovyClient({
-  apiUrl: 'http://localhost:3000',
+  apiUrl: 'http://localhost:3001',
   token: process.env.TROVY_TOKEN!,
 });
 ```
@@ -75,7 +75,7 @@ If you were on `@taskflowapp/sdk@0.2.x`:
 1. `npm uninstall @taskflowapp/sdk && npm install @trovyhq/sdk@^1.0.0`
 2. Replace `TaskFlowClient` with `TrovyClient` (or import the alias which throws a deprecation warning)
 3. Replace `TaskFlowError` with `TrovyError`
-4. Update API URL from `taskflow.app` to `app.trovy.app`
+4. Update API URL from `taskflow.app` to `api.trovy.app`
 
 The CLI and MCP server have been renamed in lockstep — install `@trovyhq/cli` and `@trovyhq/mcp-server` instead of the `@taskflowapp/*` versions.
 
