@@ -161,13 +161,14 @@ export interface RelatedTask {
 
 export interface TaskDependency {
   id: string;
-  taskId: string;
-  dependsOnId: string;
-  /** The task we're blocked by (when listing `blockedBy`). */
-  dependsOn?: RelatedTask;
-  /** The task we're blocking (when listing `blocks`). */
-  task?: RelatedTask;
+  /** The task that blocks `targetTaskId`. */
+  sourceTaskId: string;
+  /** The task blocked by `sourceTaskId`. */
+  targetTaskId: string;
+  type: 'BLOCKS';
+  createdBy: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface TaskShare {
@@ -404,13 +405,10 @@ export class TrovyClient {
     const json = text ? safeJson(text) : undefined;
 
     if (!res.ok) {
-      const message =
-        (json as any)?.error && typeof (json as any).error === 'string'
-          ? (json as any).error
-          : `HTTP ${res.status}`;
+      const message = errorMessage(json) ?? `HTTP ${res.status}`;
       throw new TrovyError(message, res.status, json);
     }
-    return json as T;
+    return unwrapSuccessEnvelope<T>(json);
   }
 
   // ── Identity ─────────────────────────────────────────────────────────────
@@ -459,7 +457,7 @@ export class TrovyClient {
     // We accept both keys ("TF") and ids. For keys, hit /api/projects then
     // match in-memory. For ids, pass through. Cheaper than two round-trips
     // would be a lookup endpoint, but for now this is plenty.
-    if (looksLikeCuid(keyOrId)) {
+    if (looksLikeProjectId(keyOrId)) {
       return this.getProject(keyOrId).then((p) => ({ id: p.project.id, project: p.project }));
     }
     return this.listProjects().then(({ projects }) => {
@@ -484,8 +482,9 @@ export class TrovyClient {
     storyPoints?: number;
     parentId?: string;
   }): Promise<{ task: Task }> {
-    return this.request<Task | { task: Task }>('POST', `/api/projects/${encodeURIComponent(input.projectId)}/tasks`, {
-      body: input,
+    const { projectId, ...body } = input;
+    return this.request<Task | { task: Task }>('POST', `/api/projects/${encodeURIComponent(projectId)}/tasks`, {
+      body,
     }).then((result) => ({ task: normalizeTask(unwrapObject(result, 'task')) }));
   }
 
@@ -841,10 +840,13 @@ export function buildTaskRef(projectKey: string, number: number, bracketed = fal
   return formatTaskRef(projectKey, number, bracketed);
 }
 
-/** Approximate CUID shape check (avoids paying for a real lookup when the
- *  caller probably already has an id). */
-function looksLikeCuid(s: string): boolean {
-  return /^c[a-z0-9]{20,}$/i.test(s);
+/**
+ * The API currently uses UUIDs, while older self-hosted deployments may still
+ * expose CUIDs. Recognise both formats so an id is never mistaken for a key.
+ */
+function looksLikeProjectId(value: string): boolean {
+  return /^c[a-z0-9]{20,}$/i.test(value) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function toQueryString(q: Record<string, unknown>): string {
@@ -862,6 +864,30 @@ function safeJson(text: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Successful Trovy API responses use the global `{ success, data }` envelope.
+ * Legacy self-hosted deployments may still return a raw payload, which remains
+ * supported for a non-breaking SDK upgrade.
+ */
+function unwrapSuccessEnvelope<T>(value: unknown): T {
+  if (!isRecord(value) || !('success' in value)) return value as T;
+
+  if (value.success === true && 'data' in value) return value.data as T;
+
+  throw new TrovyError('Malformed API response: expected a successful response envelope', 502, value);
+}
+
+function errorMessage(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  if (typeof value.message === 'string') return value.message;
+  if (typeof value.error === 'string') return value.error;
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function unwrapArray<T>(value: T[] | { [key: string]: T[] }, key: string): T[] {
