@@ -41,6 +41,10 @@ const client = new TrovyClient({
 });
 ```
 
+Successful API responses are transparently unwrapped from Trovy's stable
+`{ success, statusCode, data, timestamp }` transport envelope. The SDK also
+keeps compatibility with older self-hosted deployments that return raw payloads.
+
 ## Auth
 
 Generate a personal-access token from `/settings/api-tokens` in the Trovy web UI.
