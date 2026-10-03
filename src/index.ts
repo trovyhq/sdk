@@ -49,12 +49,26 @@ export type NotificationType =
 
 export interface Project {
   id: string;
+  workspaceId?: string;
   name: string;
   key: string;
   color: string;
   description?: string | null;
   visibility: 'PRIVATE' | 'TEAM' | 'PUBLIC';
   githubRepoFullName?: string | null;
+}
+
+/** A workspace the authenticated user can access. */
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  ownerId: string;
+  kind: 'PERSONAL' | 'TEAM';
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
+  description?: string | null;
+  color?: string | null;
+  icon?: string | null;
 }
 
 export interface User {
@@ -425,6 +439,28 @@ export class TrovyClient {
   }
 
   // ── Projects ─────────────────────────────────────────────────────────────
+
+  /** List every workspace available to the authenticated user. */
+  async listWorkspaces(): Promise<{ workspaces: Workspace[] }> {
+    const result = await this.request<Workspace[] | { workspaces: Workspace[] }>('GET', '/api/workspaces');
+    return { workspaces: unwrapArray(result, 'workspaces') };
+  }
+
+  /** Create a project in a workspace where the API token has permission. */
+  createProject(input: {
+    workspaceId: string;
+    name: string;
+    key: string;
+    description?: string;
+    color?: string;
+    icon?: string;
+    visibility?: Project['visibility'];
+    startDate?: string | null;
+    targetDate?: string | null;
+  }): Promise<{ project: Project }> {
+    return this.request<Project | { project: Project }>('POST', '/api/projects', { body: input })
+      .then((result) => ({ project: normalizeProject(unwrapObject(result, 'project')) }));
+  }
 
   async listProjects(): Promise<{ projects: Project[] }> {
     const result = await this.request<Project[] | { projects: Project[] }>('GET', '/api/projects');
